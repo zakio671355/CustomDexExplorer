@@ -14919,27 +14919,47 @@ Main = (function()
 		Main.CreateApp({Name = "Dump Game", IconMap = Main.LargeIcons, Icon = "Book", OnClick = function(callback)
 			if callback then
 				local rs = game:GetService("ReplicatedStorage")
-				local fileName = "dex/saved/Dump_ReplicatedStorage_" .. os.date("%Y%m%d_%H%M%S")
+				local basePath = "Dump_" .. tostring(game.PlaceId)
 				
-				local options = {
-					Object = rs,
-					Decompile = true,
-					NilInstances = true,
-					SavePlayers = false,
-					IsolateStarterPlayer = false,
-					mode = "optimized"
-				}
-				
-				if env.saveinstance then
-					local s, result = pcall(env.saveinstance, rs, fileName, options)
-					if not s then
-						warn("Failed to dump ReplicatedStorage: " .. tostring(result))
-					else
-						print("Successfully dumped ReplicatedStorage to " .. fileName)
-					end
+				if env.makefolder then
+					pcall(env.makefolder, basePath)
+					pcall(env.makefolder, basePath .. "/ReplicatedStorage")
 				else
-					warn("Your executor does not support saveinstance.")
+					warn("Your executor does not support makefolder.")
+					return
 				end
+				
+				local function dumpInstance(instance, currentPath)
+					for _, child in ipairs(instance:GetChildren()) do
+						local safeName = tostring(child.Name):gsub("[\\/:*?\"<>|]", "_")
+						local newPath = currentPath .. "/" .. safeName
+						
+						local isScript = child:IsA("ModuleScript") or child:IsA("LocalScript") or child:IsA("Script")
+						
+						if isScript then
+							if env.writefile and env.decompile then
+								local s, decompiled = pcall(env.decompile, child)
+								if s and type(decompiled) == "string" then
+									pcall(env.writefile, newPath .. ".lua", decompiled)
+								else
+									pcall(env.writefile, newPath .. ".lua", "-- Failed to decompile\n-- " .. tostring(decompiled))
+								end
+							end
+							task.wait()
+						end
+						
+						if #child:GetChildren() > 0 or child:IsA("Folder") then
+							pcall(env.makefolder, newPath)
+							dumpInstance(child, newPath)
+						end
+					end
+				end
+				
+				print("Starting dump of ReplicatedStorage...")
+				task.spawn(function()
+					dumpInstance(rs, basePath .. "/ReplicatedStorage")
+					print("Finished dumping ReplicatedStorage to " .. basePath)
+				end)
 			end
 		end})
 
