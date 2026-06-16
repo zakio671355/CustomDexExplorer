@@ -14929,12 +14929,46 @@ Main = (function()
 					return
 				end
 				
+				local sg = Instance.new("ScreenGui")
+				sg.Name = "DumpStatusGui"
+				sg.DisplayOrder = 999999
+				local frame = Instance.new("Frame")
+				frame.Size = UDim2.new(0, 300, 0, 100)
+				frame.Position = UDim2.new(0.5, -150, 0.5, -50)
+				frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+				frame.BorderSizePixel = 0
+				frame.Parent = sg
+				
+				local label = Instance.new("TextLabel")
+				label.Size = UDim2.new(1, -20, 1, -20)
+				label.Position = UDim2.new(0, 10, 0, 10)
+				label.BackgroundTransparency = 1
+				label.TextColor3 = Color3.new(1, 1, 1)
+				label.TextScaled = true
+				label.Parent = frame
+				
+				if env.gethui then
+					pcall(function() sg.Parent = env.gethui() end)
+				elseif env.protectgui then
+					pcall(function() env.protectgui(sg) sg.Parent = game:GetService("CoreGui") end)
+				else
+					pcall(function() sg.Parent = game:GetService("CoreGui") end)
+				end
+				
+				local totalItems = math.max(1, #rs:GetDescendants())
+				local processedItems = 0
+				
 				local function dumpInstance(instance, currentPath)
 					for _, child in ipairs(instance:GetChildren()) do
+						processedItems = processedItems + 1
+						
 						local safeName = tostring(child.Name):gsub("[\\/:*?\"<>|]", "_")
 						local newPath = currentPath .. "/" .. safeName
 						
+						label.Text = string.format("Progress: %d%%\nProcessing: %s", math.floor((processedItems/totalItems)*100), safeName)
+						
 						local isScript = child:IsA("ModuleScript") or child:IsA("LocalScript") or child:IsA("Script")
+						local isFolder = child:IsA("Folder")
 						
 						if isScript then
 							if env.writefile and env.decompile then
@@ -14945,12 +14979,41 @@ Main = (function()
 									pcall(env.writefile, newPath .. ".lua", "-- Failed to decompile\n-- " .. tostring(decompiled))
 								end
 							end
-							task.wait()
 						end
 						
-						if #child:GetChildren() > 0 or child:IsA("Folder") then
+						if not isFolder and env.writefile then
+							local dataToSave = {ClassName = child.ClassName, Name = child.Name}
+							if API then
+								local props = API.GetMember(child.ClassName, "Properties")
+								if props then
+									for _, propData in ipairs(props) do
+										local s, val = pcall(function() return child[propData.Name] end)
+										if s and val ~= nil then
+											if typeof(val) == "Instance" then
+												val = val:GetFullName()
+											elseif typeof(val) == "EnumItem" then
+												val = val.Name
+											elseif type(val) == "userdata" then
+												val = tostring(val)
+											end
+											dataToSave[propData.Name] = val
+										end
+									end
+								end
+							end
+							local s, json = pcall(service.HttpService.JSONEncode, service.HttpService, dataToSave)
+							if s then
+								pcall(env.writefile, newPath .. ".json", json)
+							end
+						end
+						
+						if #child:GetChildren() > 0 or isFolder then
 							pcall(env.makefolder, newPath)
 							dumpInstance(child, newPath)
+						end
+						
+						if processedItems % 5 == 0 then
+							task.wait()
 						end
 					end
 				end
@@ -14958,7 +15021,10 @@ Main = (function()
 				print("Starting dump of ReplicatedStorage...")
 				task.spawn(function()
 					dumpInstance(rs, basePath .. "/ReplicatedStorage")
+					label.Text = "Progress: 100%\nDump Complete!"
 					print("Finished dumping ReplicatedStorage to " .. basePath)
+					task.wait(3)
+					sg:Destroy()
 				end)
 			end
 		end})
